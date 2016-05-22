@@ -1,23 +1,14 @@
 package net.magnusfrater;
 
 import javax.swing.*;
+import javax.swing.text.DefaultCaret;
 import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
-import java.awt.event.FocusEvent;
-import java.awt.event.FocusListener;
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
-import java.net.*;
+import java.awt.event.*;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
 import java.util.Date;
 
-public class Parley extends JFrame implements FocusListener {
-    private static final long serialVersionUID = 1L;
+public class Parley extends JFrame implements FocusListener{
 
     //FORM COMPONENTS
     private final Dimension minSize = new Dimension(700,400);
@@ -47,14 +38,16 @@ public class Parley extends JFrame implements FocusListener {
     private JTextField jtfInput;
 
     //NETWORKING
-    BufferedReader in;
-    PrintWriter out;
-
     private String hostIP;
     private int hostPort;
     private String username;
-    private boolean listening;
 
+    private Server server;
+    private Client client;
+
+    /*
+     * Constructor to create JFrame, call GUI setup, and initialize IP/port/name
+     */
     public Parley(){
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setMinimumSize(minSize);
@@ -67,7 +60,9 @@ public class Parley extends JFrame implements FocusListener {
         hostIP = "127.0.0.1";
         hostPort = 43336;
         username = "Anonymous";
-        listening = false;
+
+        server = null;
+        client = null;
 
         initComponents(); //initializes all components for use
         initClientComponents(); //enables only client-needed components only
@@ -77,6 +72,9 @@ public class Parley extends JFrame implements FocusListener {
         appendParleyMessage("Welcome to Parley, the simple instant messenger!"); //welcome message
     }
 
+    /*
+         * Initializes entire GUI
+         */
     private void initComponents(){
         //initialize panels
         JPanel top = new JPanel(new GridBagLayout());
@@ -188,18 +186,14 @@ public class Parley extends JFrame implements FocusListener {
         jbClientServerAction = new JButton("JButton");
         jbClientServerAction.addActionListener(new ActionListener(){
             public void actionPerformed(ActionEvent e){
-                if (jbClientServerAction.getText().equals("Start")){ //if server,
-                    runServer();
-                }
-                if (jbClientServerAction.getText().equals("Stop")){
-                    listening = false;
-                }
-
-                if (jbClientServerAction.getText().equals("Join")){ //if client, primed to attempt server connection
-                    runClient();
-                }
-                if (jbClientServerAction.getText().equals("Leave")){ //if client, primed to attempt server disconnection
-                    listening = false;
+                if (jbClientServerAction.getText().equals("Start")){ //if server, primed for client connection=
+                    startServer();
+                }else if (jbClientServerAction.getText().equals("Stop")){ //if server, primed for client disconnect
+                    stopServer();
+                }else if (jbClientServerAction.getText().equals("Join")){ //if client, primed to attempt server connection
+                    startClient();
+                }else if (jbClientServerAction.getText().equals("Leave")){ //if client, primed to attempt server disconnection
+                    stopClient();
                 }
             }
         });
@@ -213,14 +207,16 @@ public class Parley extends JFrame implements FocusListener {
         jtaDisplay.setMargin(new Insets(0,5,5,0));
         mid.add(jspDisplay);
 
+        DefaultCaret caret = (DefaultCaret)jtaDisplay.getCaret();
+        caret.setUpdatePolicy(DefaultCaret.ALWAYS_UPDATE);
+
         mid.setBorder(BorderFactory.createEmptyBorder(5,5,5,5));
 
         //BOT
         jtfInput = new JTextField(); //user input text field
         jtfInput.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e){
-                if (listening)
-                    out.println(jtfInput.getText());
+                client.sendMessage(new ChatMessage(ChatMessage.MESSAGE, jtfInput.getText()));
 
                 jtfInput.setText("");
             }
@@ -237,6 +233,9 @@ public class Parley extends JFrame implements FocusListener {
         pack();
     }
 
+    /*
+     * Updates chat display when message comes from the server
+     */
     protected void appendServerMessage(String message){
         String output = "";
 
@@ -247,6 +246,10 @@ public class Parley extends JFrame implements FocusListener {
 
         jtaDisplay.append(output +"\n");
     }
+
+    /*
+     * Updates chat display when message comes from your client
+     */
     protected void appendParleyMessage(String message){
         String output = "";
 
@@ -279,8 +282,6 @@ public class Parley extends JFrame implements FocusListener {
     }
 
     private void initServerComponents(){
-        listening = false; //server isn't in use, don't listen
-
         jrbServer.setEnabled(true); //allowed to specify if server
         jrbClient.setEnabled(true); //allowed to specify if client
 
@@ -294,8 +295,6 @@ public class Parley extends JFrame implements FocusListener {
         jtfInput.setEnabled(false); //server cannot send own messages
     }
     private void initClientComponents(){
-        listening = false; //client isn't in use, don't listen
-
         jrbServer.setEnabled(true); //allowed to specify if server
         jrbClient.setEnabled(true); //allowed to specify if client
 
@@ -309,8 +308,6 @@ public class Parley extends JFrame implements FocusListener {
         jtfInput.setEnabled(false); //client can't send data until connected to server
     }
     private void initListeningComponents(){
-        listening = true; //client/server is ready to listen
-
         jrbServer.setEnabled(false); //cannot change to server while listening
         jrbClient.setEnabled(false); //cannot change to client while listening
 
@@ -327,75 +324,36 @@ public class Parley extends JFrame implements FocusListener {
         }
     }
 
-    private void runClient(){
+    private void startClient(){
         initListeningComponents();
+        appendParleyMessage("Connecting to server IP \'"+ hostIP +"\' on port "+ hostPort +"...");
 
-        Socket socket = null;
-
-        try {
-            socket = new Socket(hostIP, hostPort);
-            in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-            out = new PrintWriter(socket.getOutputStream(), true);
-
-            while (listening){
-                String line = in.readLine();
-
-                if (line.startsWith("SUBMITNAME")) {
-                    out.println(username);
-                    System.out.println("submitting username");
-                    //} else if (line.startsWith("NAMEACCEPTED")) { //test chat client code
-                    //textField.setEditable(true); //test chat client code
-                } else if (line.startsWith("MESSAGE")) {
-                    appendParleyMessage(line.substring(8) + "\n");
-                }
-
-                System.out.println("listening...");
-            }
-
-            System.out.println("done.");
-
-            socket.close();
-            in.close();
-            out.close();
-
-        } catch (SocketException e){
-            appendParleyMessage("SocketException: "+ e);
-        } catch (IOException e){
-            appendParleyMessage("IOException: "+ e);
-        } catch (Exception e){
-            appendParleyMessage("Exception: "+ e);
-        } finally {
+        client = new Client(this, hostIP, hostPort, username);
+        if (!client.start()){
+            client = null;
             initClientComponents();
         }
     }
+    private void stopClient(){
+        client.sendMessage(new ChatMessage(ChatMessage.LOGOUT, ""));
+        client.disconnect();
+        client = null;
 
-    private void runServer(){
-        initListeningComponents();
-
-        ArrayList<ClientHandler> clients;
-
-        ServerSocket listener = null;
-        try {
-            listener = new ServerSocket(hostPort);
-        } catch (IOException ioe) {
-            appendParleyMessage("IOException: "+ ioe);
-        }
+        appendParleyMessage("Left server.");
+        initClientComponents();
     }
 
-    class ClientHandler implements Runnable { //handles client
+    private void startServer(){
+        initListeningComponents();
 
-        private String name;
-        private Socket socket;
-        private BufferedReader in;
-        private PrintWriter out;
+        server = new Server(this, hostPort);
+        server.start();
+    }
+    private void stopServer(){
+        server.stop();
+        server = null;
 
-        public ClientHandler(Socket socket){
-            this.socket = socket;
-        }
-
-        public void run(){
-
-        }
+        initServerComponents();
     }
 
     public static void main(String[] args){
@@ -404,4 +362,5 @@ public class Parley extends JFrame implements FocusListener {
 }
 
 //research runnable, threads, synchronized, synchronized variables
-//hello world
+
+//http://www.dreamincode.net/forums/topic/259777-a-simple-chat-program-with-clientserver-gui-optional/
