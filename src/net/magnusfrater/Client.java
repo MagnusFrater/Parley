@@ -5,6 +5,8 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.Socket;
 
+import ArpaSpeak.*;
+
 public class Client {
 
     private Parley p;
@@ -120,9 +122,18 @@ public class Client {
                     String msg = (String) sInput.readObject();
                     // if console mode print the message and add back the prompt
                     p.appendServerMessage(msg);
+
+                    if (p.jcbSpeak.isSelected()){
+                        new Thread(){
+                            public void run(){
+                                String message = msg.substring(msg.indexOf(":"));
+                                new Speak(message);
+                            }
+                        }.start();
+                    }
                 }
                 catch(IOException e) {
-                    p.appendParleyMessage("Server has close the connection: " + e);
+                    p.appendParleyMessage("Server has closed the connection: " + e);
 
                     break;
                 }

@@ -9,6 +9,8 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 
+import ArpaSpeak.*;
+
 public class Server {
 
     private Parley p;
@@ -66,6 +68,15 @@ public class Server {
      */
     private synchronized void broadcast(String message) {
         p.appendServerMessage(message);     // append in the room window
+
+        if (p.jcbSpeak.isSelected()){
+            new Thread(){
+                public void run(){
+                    String msg = message.substring(message.indexOf(":"));
+                    new Speak(msg);
+                }
+            }.start();
+        }
 
         // we loop in reverse order in case we would have to remove a Client
         // because it has disconnected
@@ -150,7 +161,7 @@ public class Server {
         Socket socket;
         ObjectInputStream sInput;
         ObjectOutputStream sOutput;
-        // my unique id (easier for deconnection)
+        // my unique id (easier for disconnection)
         int id;
         // the Username of the Client
         String username;
@@ -202,7 +213,7 @@ public class Server {
                 catch(ClassNotFoundException e2) {
                     break;
                 }
-                // the messaage part of the ChatMessage
+                // the message part of the ChatMessage
                 String message = cm.getMessage();
 
                 // Switch on the type of message receive
